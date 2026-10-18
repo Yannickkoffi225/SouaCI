@@ -819,36 +819,48 @@
         }
 
         @media (max-width: 768px) {
-            .hero h1 {
-                font-size: 1.8rem;
-            }
-            
-            .search-bar {
-                flex-direction: column;
-                padding: 1rem;
-            }
-            
-            .search-select, .search-input {
-                width: 100%;
-                min-width: auto;
-            }
-            
-            .properties-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .form-row {
-                grid-template-columns: 1fr;
-            }
-            
-            .communes-grid {
-                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-            }
-            
-            .nav-links {
-                margin-top: 1rem;
-            }
-        }
+    body {
+        overflow-x: hidden; /* Empêche le défilement horizontal indésirable */
+    }
+
+    .hero {
+        padding: 2rem 1rem; /* Réduit les marges intérieures du bandeau principal */
+    }
+
+    .hero h1 {
+        font-size: 1.6rem; /* Réduit la taille du titre principal sur mobile */
+    }
+    
+    .search-bar {
+        flex-direction: column;
+        padding: 1rem;
+        gap: 0.8rem;
+    }
+    
+    .search-select, .search-input, .search-button {
+        width: 100%; /* Les champs de recherche prennent toute la largeur */
+        min-width: auto;
+    }
+    
+    .properties-grid {
+        grid-template-columns: 1fr; /* Une seule colonne pour les annonces sur mobile */
+        gap: 1.5rem;
+    }
+    
+    .container {
+        padding: 1rem; /* Réduit les marges globales des sections */
+    }
+
+    .modal-content {
+        width: 95%;
+        padding: 1.2rem;
+        max-height: 85vh;
+    }
+    
+    .form-row {
+        grid-template-columns: 1fr; /* Les formulaires passent en une seule colonne */
+    }
+    }
     </style>
 </head>
 <body>
