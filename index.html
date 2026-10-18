@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 1. Chargement de la bibliothèque Supabase -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+    const { createClient } = supabase;
+    
+    const supabaseUrl = 'https://spbyvkpilrqybbdndwly.supabase.co';
+    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwYnl2a3BpbHJxeWJiZG5kd2x5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzMjM1MDUsImV4cCI6MjEwNzg5OTUwNX0.xrpO5oxFREOY0shzQNArmH7VvOq0o6VuOaDj-j9EIPM'; 
+
+    const _supabase = createClient(supabaseUrl, supabaseKey);
+
+    console.log("Supabase est connecté avec succès !");
+    s
+    // Fonction pour hacher le mot de passe de manière sécurisée
+    async function hashPassword(password) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // 1. Fonction pour l'Inscription d'un utilisateur
+    async function handleRegister(event) {
+        event.preventDefault();
+        const form = event.target;
+        const inputs = form.querySelectorAll('input, select');
+        
+        const prenom = inputs[0].value;
+        const nom = inputs[1].value;
+        const email = inputs[2].value;
+        const telephone = inputs[3].value;
+        const ville = inputs[4].value;
+        const rawPassword = inputs[5].value;
+
+        try {
+            const hashedPassword = await hashPassword(rawPassword);
+
+            const { error } = await _supabase
+                .from('utilisateurs')
+                .insert([{ 
+                    nom, 
+                    prenom, 
+                    email, 
+                    telephone, 
+                    ville, 
+                    mot_de_passe: hashedPassword 
+                }]);
+
+            if (error) throw error;
+
+            showNotification('Inscription réussie ! Vous pouvez vous connecter.', 'success');
+            isLoginMode = true;
+            toggleAuth();
+        } catch (error) {
+            console.error("Erreur d'inscription :", error.message);
+            document.getElementById('auth-error').innerHTML = `<div class="alert alert-error">${error.message}</div>`;
+        }
+    }
+
+    // 2. Fonction pour la Connexion d'un utilisateur
+    async function handleLogin(event) {
+        event.preventDefault();
+        const form = event.target;
+        const email = form.querySelector('input[type="email"]').value;
+        const rawPassword = form.querySelector('input[type="password"]').value;
+
+        try {
+            const hashedPassword = await hashPassword(rawPassword);
+
+            const { data, error } = await _supabase
+                .from('utilisateurs')
+                .select('*')
+                .eq('email', email)
+                .eq('mot_de_passe', hashedPassword)
+                .single();
+
+            if (error || !data) {
+                document.getElementById('auth-error').innerHTML = '<div class="alert alert-error">Email ou mot de passe incorrect.</div>';
+                return;
+            }
+
+            localStorage.setItem('user_id', data.id);
+            localStorage.setItem('user_prenom', data.prenom);
+
+            isLoggedIn = true;
+            closeAuthModal();
+            showNotification(`Connexion réussie ! Bienvenue ${data.prenom}`, 'success');
+            updateNavForLoggedInUser();
+            loadCloudProperties();
+        } catch (error) {
+            console.error("Erreur de connexion :", error.message);
+            document.getElementById('auth-error').innerHTML = `<div class="alert alert-error">Identifiants incorrects.</div>`;
+        }
+    }
+
+    // 3. Fonction pour Publier une annonce avec MULTI-PHOTOS sur le Cloud Supabase
+    async function publishProperty(event) {
+        event.preventDefault();
+        
+        const userId = localStorage.getItem('user_id');
+        if (!userId) {
+            showNotification('Veuillez vous connecter pour publier une annonce', 'error');
+            openAuthModal();
+            return;
+        }
+
+        const title = document.getElementById('publish-title').value;
+        const operation = document.getElementById('publish-status').value;
+        const type_bien = document.getElementById('publish-type').value;
+        const description = document.getElementById('publish-description').value;
+        const city = document.getElementById('publish-city').value;
+        const commune = document.getElementById('publish-commune').value;
+        const prix = parseFloat(document.getElementById('publish-price').value);
+        const surface = parseFloat(document.getElementById('publish-surface').value);
+        const pieces = parseInt(document.getElementById('publish-rooms').value);
+        const salles_de_bain = parseInt(document.getElementById('publish-bathrooms').value);
+        
+        const imageInput = document.getElementById('publish-image');
+        if (!imageInput || imageInput.files.length === 0) {
+            document.getElementById('publish-error').innerHTML = `<div class="alert alert-error">Veuillez sélectionner au moins une photo pour le bien.</div>`;
+            return;
+        }
+        const imageFiles = imageInput.files;
+
+        if (city === 'Abidjan' && !commune) {
+            document.getElementById('publish-error').innerHTML = `<div class="alert alert-error">Veuillez sélectionner une commune pour Abidjan</div>`;
+            return;
+        }
+
+        try {
+            let imageUrls = [];
+
+            // Boucle d'envoi de toutes les photos sélectionnées vers le Storage
+            for (let i = 0; i < imageFiles.length; i++) {
+                const imageFile = imageFiles[i];
+                const fileName = `${Date.now()}_${i}_${imageFile.name}`;
+                
+                const { error: uploadError } = await _supabase.storage
+                    .from('images-annonces')
+                    .upload(fileName, imageFile);
+
+                if (uploadError) throw uploadError;
+
+                const { data: publicUrlData } = _supabase.storage
+                    .from('images-annonces')
+                    .getPublicUrl(fileName);
+
+                imageUrls.push(publicUrlData.publicUrl);
+            }
+
+            // Insertion dans la table 'annonces' avec liaison multi-photos et user_id
+            const { error: insertError } = await _supabase
+                .from('annonces')
+                .insert([
+                    {
+                        user_id: parseInt(userId),
+                        titre: title,
+                        operation: operation,
+                        type_bien: type_bien,
+                        description: description,
+                        ville: city,
+                        commune: commune || '',
+                        prix: prix,
+                        surface: surface,
+                        pieces: pieces,
+                        salles_de_bain: salles_de_bain,
+                        photo: imageUrls[0],
+                        photos_supplementaires: imageUrls.join(',')
+                    }
+                ]);
+
+            if (insertError) throw insertError;
+
+            closePublishModal();
+            showNotification('Annonce publiée avec succès sur le Cloud Supabase !', 'success');
+            loadCloudProperties();
+
+        } catch (error) {
+            console.error("Erreur lors de la publication :", error.message);
+            document.getElementById('publish-error').innerHTML = `<div class="alert alert-error">Erreur lors de la publication : ${error.message}</div>`;
+        }
+    }
+
+    // 4. Fonction pour charger les annonces et le téléphone du propriétaire depuis Supabase
+    async function loadCloudProperties() {
+        try {
+            const { data, error } = await _supabase
+                .from('annonces')
+                .select(`*, utilisateurs (telephone, prenom, nom)`)
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            if (data && data.length > 0) {
+                properties = data.map(item => ({
+                    id: item.id,
+                    user_id: item.user_id,
+                    title: item.titre,
+                    status: item.operation,
+                    type: item.type_bien,
+                    price: item.prix,
+                    surface: item.surface,
+                    rooms: item.pieces,
+                    bathrooms: item.salles_de_bain,
+                    city: item.ville,
+                    commune: item.commune,
+                    features: [],
+                    image: item.photo,
+                    allPhotos: item.photos_supplementaires ? item.photos_supplementaires.split(',') : [item.photo],
+                    description: item.description,
+                    ownerPhone: item.utilisateurs ? item.utilisateurs.telephone : ''
+                }));
+            }
+            displayProperties();
+        } catch (error) {
+            console.error("Erreur lors du chargement des annonces :", error.message);
+        }
+    }
+
+    // 5. Fonction pour supprimer sa propre annonce
+    async function deleteProperty(propertyId) {
+        if (!confirm("Voulez-vous vraiment supprimer cette annonce ?")) return;
+
+        try {
+            const { error } = await _supabase
+                .from('annonces')
+                .delete()
+                .eq('id', propertyId);
+
+            if (error) throw error;
+
+            showNotification('Annonce supprimée avec succès', 'success');
+            loadCloudProperties();
+        } catch (error) {
+            console.error("Erreur de suppression :", error.message);
+            showNotification('Erreur lors de la suppression', 'error');
+        }
+    }
+    </script>
+    <title>SouaCI - Location et Vente Immobilière en Côte d'Ivoire</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .navbar {
+            background: white;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #1a73e8;
+            text-decoration: none;
+        }
+
+        .logo span {
+            color: #ff6b00;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .nav-link {
+            text-decoration: none;
+            color: #555;
+            font-weight: 500;
+            transition: color 0.3s;
+            padding: 0.5rem;
+        }
+
+        .nav-link:hover {
+            color: #1a73e8;
+        }
+
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border: none;
+            border-radius: 25px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.9rem;
+        }
+
+        .btn-primary {
+            background: #1a73e8;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1557b0;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(26,115,232,0.3);
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(40,167,69,0.3);
+        }
+
+        .btn-orange {
+            background: #ff6b00;
+            color: white;
+        }
+
+        .btn-orange:hover {
+            background: #e55d00;
+            transform: translateY(-2px);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .hero {
+            background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%);
+            color: white;
+            padding: 4rem 2rem;
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .hero h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            opacity: 0.9;
+        }
+
+        .search-bar {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            justify-content: center;
+            align-items: center;
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .search-select, .search-input {
+            padding: 0.8rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            min-width: 180px;
+            transition: border-color 0.3s;
+            background: white;
+        }
+
+        .search-select:focus, .search-input:focus {
+            outline: none;
+            border-color: #1a73e8;
+        }
+
+        .search-button {
+            background: #ff6b00;
+            color: white;
+            padding: 0.8rem 2rem;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 1rem;
+        }
+
+        .search-button:hover {
+            background: #e55d00;
+            transform: scale(1.05);
+        }
+
+        .communes-section {
+            margin: 3rem 0;
+        }
+
+        .communes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 1.5rem 0;
+        }
+
+        .commune-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: all 0.3s;
+            border: 2px solid transparent;
+        }
+
+        .commune-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+            border-color: #1a73e8;
+        }
+
+        .commune-card h3 {
+            color: #1a73e8;
+            margin-bottom: 0.5rem;
+            font-size: 1.1rem;
+        }
+
+        .commune-card p {
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .commune-card.popular {
+            border-color: #ff6b00;
+            position: relative;
+        }
+
+        .commune-badge {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #ff6b00;
+            color: white;
+            padding: 0.3rem 0.8rem;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            color: #333;
+            margin-bottom: 2rem;
+            text-align: center;
+            position: relative;
+        }
+
+        .section-title:after {
+            content: '';
+            display: block;
+            width: 60px;
+            height: 4px;
+            background: #1a73e8;
+            margin: 1rem auto;
+            border-radius: 2px;
+        }
+
+        .cities-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .city-card {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+            cursor: pointer;
+        }
+
+        .city-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+
+        .city-image {
+            height: 200px;
+            background-size: cover;
+            background-position: center;
+            display: flex;
+            align-items: flex-end;
+        }
+
+        .city-image.abidjan { 
+            background: linear-gradient(to top, rgba(0,0,0,0.7), transparent), 
+                        linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .city-image.yamoussoukro { 
+            background: linear-gradient(to top, rgba(0,0,0,0.7), transparent),
+                        linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        .city-image.bouake { 
+            background: linear-gradient(to top, rgba(0,0,0,0.7), transparent),
+                        linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        .city-image.san-pedro { 
+            background: linear-gradient(to top, rgba(0,0,0,0.7), transparent),
+                        linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        }
+
+        .city-info {
+            padding: 1.5rem;
+        }
+
+        .city-name {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .city-count {
+            color: #666;
+        }
+
+        .properties-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .property-card {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+
+        .property-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+
+        .property-image {
+            height: 250px;
+            background-size: cover;
+            background-position: center;
+            position: relative;
+        }
+
+        .property-badge {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: #ff6b00;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+
+        .property-badge.rent {
+            background: #1a73e8;
+        }
+
+        .property-content {
+            padding: 1.5rem;
+        }
+
+        .property-price {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #1a73e8;
+            margin-bottom: 0.5rem;
+        }
+
+        .property-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .property-location {
+            color: #666;
+            margin-bottom: 1rem;
+        }
+
+        .property-features {
+            display: flex;
+            gap: 1rem;
+            color: #666;
+            font-size: 0.9rem;
+            flex-wrap: wrap;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .cta-section {
+            background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%);
+            color: white;
+            padding: 4rem 2rem;
+            border-radius: 15px;
+            margin: 3rem 0;
+            text-align: center;
+        }
+
+        .cta-section h2 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 2rem;
+            margin: 3rem 0;
+        }
+
+        .stat-card {
+            text-align: center;
+            padding: 2rem;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #1a73e8;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 2rem;
+            cursor: pointer;
+            color: #666;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #555;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #1a73e8;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        textarea.form-input {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .footer {
+            background: #333;
+            color: white;
+            padding: 3rem 0;
+            margin-top: 3rem;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+        }
+
+        .footer-section h3 {
+            margin-bottom: 1rem;
+            color: #ff6b00;
+        }
+
+        .footer-section a {
+            color: #ddd;
+            text-decoration: none;
+            display: block;
+            margin-bottom: 0.5rem;
+            transition: color 0.3s;
+        }
+
+        .footer-section a:hover {
+            color: #ff6b00;
+        }
+
+        .filter-tags {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+            margin: 1rem 0;
+        }
+
+        .filter-tag {
+            background: #e8f0fe;
+            color: #1a73e8;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            cursor: pointer;
+            border: none;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+        }
+
+        .filter-tag:hover, .filter-tag.active {
+            background: #1a73e8;
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 1.8rem;
+            }
+            
+            .search-bar {
+                flex-direction: column;
+                padding: 1rem;
+            }
+            
+            .search-select, .search-input {
+                width: 100%;
+                min-width: auto;
+            }
+            
+            .properties-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .communes-grid {
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            }
+            
+            .nav-links {
+                margin-top: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <a href="#" class="logo" onclick="resetToHome()">Soua<span>CI</span></a>
+        <div class="nav-links" id="nav-links-container">
+            <a href="#acheter" class="nav-link">Acheter</a>
+            <a href="#louer" class="nav-link">Louer</a>
+            <a href="#villes" class="nav-link">Villes</a>
+            <a href="#communes" class="nav-link">Communes Abidjan</a>
+            <button class="btn btn-primary" onclick="openAuthModal()">Connexion</button>
+            <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container">
+            <h1>Trouvez votre maison idéale en Côte d'Ivoire</h1>
+            <p>Des milliers d'annonces de location et vente dans toutes les communes d'Abidjan</p>
+            
+            <div class="search-bar">
+                <select class="search-select" id="search-status">
+                    <option value="">Type d'opération</option>
+                    <option value="À louer">Location</option>
+                    <option value="À vendre">Achat</option>
+                </select>
+                
+                <select class="search-select" id="search-city">
+                    <option value="">Ville</option>
+                    <option value="Abidjan">Abidjan</option>
+                    <option value="Yamoussoukro">Yamoussoukro</option>
+                    <option value="Bouaké">Bouaké</option>
+                    <option value="San-Pédro">San-Pédro</option>
+                </select>
+                
+                <select class="search-select" id="search-commune">
+                    <option value="">Commune (Abidjan)</option>
+                    <option value="Cocody">Cocody</option>
+                    <option value="Plateau">Plateau</option>
+                    <option value="Marcory">Marcory</option>
+                    <option value="Treichville">Treichville</option>
+                    <option value="Koumassi">Koumassi</option>
+                    <option value="Port-Bouët">Port-Bouët</option>
+                    <option value="Yopougon">Yopougon</option>
+                    <option value="Abobo">Abobo</option>
+                    <option value="Adjamé">Adjamé</option>
+                    <option value="Attécoubé">Attécoubé</option>
+                    <option value="Bingerville">Bingerville</option>
+                    <option value="Songon">Songon</option>
+                    <option value="Anyama">Anyama</option>
+                </select>
+                
+                <select class="search-select" id="search-type">
+                    <option value="">Type de bien</option>
+                    <option value="Appartement">Appartement</option>
+                    <option value="Villa">Villa</option>
+                    <option value="Maison">Maison</option>
+                    <option value="Studio">Studio</option>
+                </select>
+                
+                <input type="number" class="search-input" id="search-price" placeholder="Budget max (FCFA)" />
+                
+                <button class="search-button" onclick="performSearch()">
+                    🔍 Rechercher
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Communes d'Abidjan Section -->
+    <section class="container communes-section" id="communes">
+        <h2 class="section-title">Les communes d'Abidjan</h2>
+        <p style="text-align: center; color: #666; margin-bottom: 2rem;">
+            Découvrez les annonces par commune
+        </p>
+        
+        <div class="communes-grid">
+            <div class="commune-card popular" onclick="filterByCommune('Cocody')">
+                <div class="commune-badge">Populaire</div>
+                <h3>🏘️ Cocody</h3>
+            </div>
+            <div class="commune-card popular" onclick="filterByCommune('Plateau')">
+                <div class="commune-badge">Centre-ville</div>
+                <h3>🏢 Plateau</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Marcory')">
+                <h3>🏠 Marcory</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Treichville')">
+                <h3>🏗️ Treichville</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Koumassi')">
+                <h3>🏡 Koumassi</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Port-Bouët')">
+                <h3>🏖️ Port-Bouët</h3>
+            </div>
+            <div class="commune-card popular" onclick="filterByCommune('Yopougon')">
+                <div class="commune-badge">Populaire</div>
+                <h3>🌆 Yopougon</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Abobo')">
+                <h3>🏙️ Abobo</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Adjamé')">
+                <h3>🕌 Adjamé</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Attécoubé')">
+                <h3>🌳 Attécoubé</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Bingerville')">
+                <h3>🏰 Bingerville</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Songon')">
+                <h3>🌴 Songon</h3>
+            </div>
+            <div class="commune-card" onclick="filterByCommune('Anyama')">
+                <h3>🏗️ Anyama</h3>
+            </div>
+        </div>
+    </section>
+
+    <!-- Cities Section -->
+    <section class="container" id="villes">
+        <h2 class="section-title">Explorer par ville</h2>
+        <div class="cities-grid">
+            <div class="city-card" onclick="filterByCity('Abidjan')">
+                <div class="city-image abidjan"></div>
+                <div class="city-info">
+                    <div class="city-name">Abidjan</div>
+                </div>
+            </div>
+            <div class="city-card" onclick="filterByCity('Yamoussoukro')">
+                <div class="city-image yamoussoukro"></div>
+                <div class="city-info">
+                    <div class="city-name">Yamoussoukro</div>
+                </div>
+            </div>
+            <div class="city-card" onclick="filterByCity('Bouaké')">
+                <div class="city-image bouake"></div>
+                <div class="city-info">
+                    <div class="city-name">Bouaké</div>
+                </div>
+            </div>
+            <div class="city-card" onclick="filterByCity('San-Pédro')">
+                <div class="city-image san-pedro"></div>
+                <div class="city-info">
+                    <div class="city-name">San-Pédro</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Active Filters -->
+    <section class="container" id="active-filters" style="display: none;">
+        <div class="filter-tags" id="filter-tags-container"></div>
+    </section>
+
+    <!-- Recent Properties -->
+    <section class="container">
+        <h2 class="section-title" id="properties-title">Annonces récentes</h2>
+        <div class="properties-grid" id="properties-container">
+            <!-- Properties will be loaded here -->
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="container">
+        <div class="cta-section">
+            <h2>Vous êtes propriétaire ?</h2>
+            <p style="margin-bottom: 2rem;">Publiez votre annonce sur SouaCI et touchez des milliers de personnes</p>
+            <button class="btn btn-success" style="font-size: 1.2rem; padding: 1rem 2rem;" onclick="openPublishModal()">
+                Publier une annonce gratuitement
+            </button>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-section">
+                <h3>SouaCI</h3>
+                <p>La première plateforme immobilière en Côte d'Ivoire. Trouvez la maison de vos rêves dans toutes les communes d'Abidjan.</p>
+            </div>
+            <div class="footer-section">
+                <h3>Contact</h3>
+                <p>📞 +225 0789948925</p>
+                <p>✉️ bonyyanncikkoffi@gmail.com</p>
+                <p>📍 Abidjan, Côte d'Ivoire</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Auth Modal -->
+    <div class="modal" id="auth-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="auth-title">Connexion</h2>
+                <button class="modal-close" onclick="closeAuthModal()">×</button>
+            </div>
+            <div id="auth-error"></div>
+            <div id="auth-form">
+                <!-- Will be populated by JavaScript -->
+            </div>
+            <p style="text-align: center; margin-top: 1rem;">
+                <span id="toggle-text">Pas encore de compte ?</span>
+                <button class="btn btn-primary" onclick="toggleAuth()" style="margin-left: 0.5rem;">
+                    <span id="toggle-btn">S'inscrire</span>
+                </button>
+            </p>
+        </div>
+    </div>
+
+    <!-- Publish Modal -->
+    <div class="modal" id="publish-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Publier une annonce</h2>
+                <button class="modal-close" onclick="closePublishModal()">×</button>
+            </div>
+            <div id="publish-error"></div>
+            <form id="publish-form" onsubmit="publishProperty(event)">
+                <div class="form-group">
+                    <label>Titre de l'annonce *</label>
+                    <input type="text" class="form-input" id="publish-title" required placeholder="Ex: Bel appartement meublé à Cocody">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Type d'opération *</label>
+                        <select class="form-input" id="publish-status" required>
+                            <option value="À louer">À louer</option>
+                            <option value="À vendre">À vendre</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Type de bien *</label>
+                        <select class="form-input" id="publish-type" required>
+                            <option value="Appartement">Appartement</option>
+                            <option value="Villa">Villa</option>
+                            <option value="Maison">Maison</option>
+                            <option value="Studio">Studio</option>
+                            <option value="Duplex">Duplex</option>
+                            <option value="Terrain">Terrain</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Description *</label>
+                    <textarea class="form-input" id="publish-description" required rows="4" placeholder="Décrivez votre bien en détail..."></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Ville *</label>
+                        <select class="form-input" id="publish-city" required onchange="toggleCommuneSelect()">
+                            <option value="Abidjan">Abidjan</option>
+                            <option value="Yamoussoukro">Yamoussoukro</option>
+                            <option value="Bouaké">Bouaké</option>
+                            <option value="San-Pédro">San-Pédro</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="commune-select-group">
+                        <label>Commune *</label>
+                        <select class="form-input" id="publish-commune">
+                            <option value="">Sélectionnez une commune</option>
+                            <option value="Cocody">Cocody</option>
+                            <option value="Plateau">Plateau</option>
+                            <option value="Marcory">Marcory</option>
+                            <option value="Treichville">Treichville</option>
+                            <option value="Koumassi">Koumassi</option>
+                            <option value="Port-Bouët">Port-Bouët</option>
+                            <option value="Yopougon">Yopougon</option>
+                            <option value="Abobo">Abobo</option>
+                            <option value="Adjamé">Adjamé</option>
+                            <option value="Attécoubé">Attécoubé</option>
+                            <option value="Bingerville">Bingerville</option>
+                            <option value="Songon">Songon</option>
+                            <option value="Anyama">Anyama</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Prix (FCFA) *</label>
+                        <input type="number" class="form-input" id="publish-price" required placeholder="Ex: 150000">
+                    </div>
+                    <div class="form-group">
+                        <label>Surface (m²) *</label>
+                        <input type="number" class="form-input" id="publish-surface" required placeholder="Ex: 150">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Pièces *</label>
+                        <input type="number" class="form-input" id="publish-rooms" required placeholder="Ex: 4">
+                    </div>
+                    <div class="form-group">
+                        <label>Salles de bain *</label>
+                        <input type="number" class="form-input" id="publish-bathrooms" required placeholder="Ex: 2">
+                    </div>
+                </div>
+
+                <!-- Photos du bien (Multi-photos activé avec multiple) -->
+                <div class="form-group">
+                    <label>Photos du bien (plusieurs photos acceptées) *</label>
+                    <input type="file" class="form-input" id="publish-image" accept="image/*" multiple required>
+                </div>
+
+                <button type="submit" class="btn btn-success" style="width: 100%;">
+                    Publier l'annonce sur le Cloud
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let properties = [];
+        let isLoggedIn = localStorage.getItem('user_id') ? true : false;
+        let isLoginMode = true;
+        let currentFilters = {};
+
+        // Vérifier l'état de connexion au chargement
+        if (isLoggedIn) {
+            updateNavForLoggedInUser();
+        }
+
+        // Display properties with WhatsApp, Miniatures, and Delete buttons
+        function displayProperties(filteredProperties = null) {
+            const container = document.getElementById('properties-container');
+            const props = filteredProperties || properties;
+            const currentUserId = localStorage.getItem('user_id');
+            
+            if (props.length === 0) {
+                container.innerHTML = `
+                    <div style="grid-column: 1/-1; text-align: center; padding: 3rem;">
+                        <h3 style="color: #666; margin-bottom: 1rem;">Aucune annonce trouvée</h3>
+                        <p style="color: #999;">Soyez le premier à publier une annonce sur le Cloud !</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = props.map(property => {
+                const whatsappUrl = property.ownerPhone ? `https://wa.me/${property.ownerPhone.replace(/\s+/g, '')}?text=Bonjour,%20je%20suis%20intéressé(e)%20par%20votre%20bien:%20${encodeURIComponent(property.title)}` : '#';
+                const isOwner = currentUserId && parseInt(currentUserId) === property.user_id;
+
+                let thumbnailsHtml = property.allPhotos && property.allPhotos.length > 1 ? `
+                    <div style="display: flex; gap: 5px; margin-top: 10px; overflow-x: auto;">
+                        ${property.allPhotos.map((img) => `<img src="${img}" style="width: 45px; height: 45px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid #ddd;" onclick="this.closest('.property-card').querySelector('.property-image').style.backgroundImage='url(${img})'">`).join('')}
+                    </div>
+                ` : '';
+
+                return `
+                <div class="property-card">
+                    <div class="property-image" style="background-image: url('${property.image}')">
+                        <div class="property-badge ${property.status === 'À louer' ? 'rent' : ''}">
+                            ${property.status}
+                        </div>
+                    </div>
+                    <div class="property-content">
+                        ${thumbnailsHtml}
+                        <div class="property-price" style="margin-top: 10px;">
+                            ${formatPrice(property.price)} ${property.status === 'À louer' ? '/ mois' : ''}
+                        </div>
+                        <div class="property-title">${property.title}</div>
+                        <div class="property-location">
+                            📍 ${property.commune ? property.commune + ', ' : ''}${property.city}
+                        </div>
+                        <div class="property-features">
+                            <span class="feature-item">📏 ${property.surface} m²</span>
+                            ${property.rooms > 0 ? `<span class="feature-item">🛏️ ${property.rooms} pièces</span>` : ''}
+                            ${property.bathrooms > 0 ? `<span class="feature-item">🚿 ${property.bathrooms} SDB</span>` : ''}
+                        </div>
+                        <p style="font-size: 0.9rem; color: #555; margin-bottom: 1rem;">${property.description}</p>
+                        
+                        ${property.ownerPhone ? `<a href="${whatsappUrl}" target="_blank" style="background: #25D366; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600; margin-top: 5px;">💬 Contacter sur WhatsApp</a>` : ''}
+                        ${isOwner ? `<button style="background: #dc3545; color: white; padding: 0.4rem 0.8rem; border-radius: 15px; font-size: 0.8rem; cursor: pointer; border: none; margin-top: 5px; margin-left: 5px;" onclick="deleteProperty(${property.id})">🗑️ Supprimer</button>` : ''}
+                    </div>
+                </div>
+            `;
+            }).join('');
+        }
+
+        function formatPrice(price) {
+            if (price >= 1000000) {
+                return (price / 1000000).toFixed(0) + 'M FCFA';
+            } else if (price >= 1000) {
+                return price.toLocaleString('fr-FR') + ' FCFA';
+            }
+            return price + ' FCFA';
+        }
+
+        // Filter functions
+        function filterByCity(city) {
+            currentFilters = { city };
+            const filtered = properties.filter(p => p.city === city);
+            displayProperties(filtered);
+            updateFilterTags();
+            document.getElementById('properties-title').textContent = `Annonces à ${city}`;
+            document.getElementById('properties-container').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function filterByCommune(commune) {
+            currentFilters = { commune };
+            const filtered = properties.filter(p => p.commune === commune);
+            displayProperties(filtered);
+            updateFilterTags();
+            document.getElementById('properties-title').textContent = `Annonces à ${commune} (Abidjan)`;
+            document.getElementById('properties-container').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function performSearch() {
+            const statusSelect = document.getElementById('search-status');
+            const citySelect = document.getElementById('search-city');
+            const communeSelect = document.getElementById('search-commune');
+            const typeSelect = document.getElementById('search-type');
+            const priceInput = document.getElementById('search-price');
+
+            currentFilters = {};
+
+            if (statusSelect.value) currentFilters.status = statusSelect.value;
+            if (citySelect.value) currentFilters.city = citySelect.value;
+            if (communeSelect.value) currentFilters.commune = communeSelect.value;
+            if (typeSelect.value) currentFilters.type = typeSelect.value;
+            if (priceInput.value) currentFilters.maxPrice = parseInt(priceInput.value);
+
+            let filtered = [...properties];
+
+            if (currentFilters.status) filtered = filtered.filter(p => p.status === currentFilters.status);
+            if (currentFilters.city) filtered = filtered.filter(p => p.city === currentFilters.city);
+            if (currentFilters.commune) filtered = filtered.filter(p => p.commune === currentFilters.commune);
+            if (currentFilters.type) filtered = filtered.filter(p => p.type === currentFilters.type);
+            if (currentFilters.maxPrice) filtered = filtered.filter(p => p.price <= currentFilters.maxPrice);
+
+            displayProperties(filtered);
+            updateFilterTags();
+            document.getElementById('properties-container').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function updateFilterTags() {
+            const container = document.getElementById('filter-tags-container');
+            const section = document.getElementById('active-filters');
+            
+            if (Object.keys(currentFilters).length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+            
+            section.style.display = 'block';
+            let tagsHTML = '';
+            
+            if (currentFilters.city) tagsHTML += `<span class="filter-tag active">🏙️ ${currentFilters.city}</span>`;
+            if (currentFilters.commune) tagsHTML += `<span class="filter-tag active">📍 ${currentFilters.commune}</span>`;
+            if (currentFilters.status) tagsHTML += `<span class="filter-tag active">${currentFilters.status}</span>`;
+            if (currentFilters.type) tagsHTML += `<span class="filter-tag active">${currentFilters.type}</span>`;
+            
+            tagsHTML += `<button class="filter-tag" onclick="resetFilter()" style="background:#dc3545; color:white;">✕ Tout effacer</button>`;
+            container.innerHTML = tagsHTML;
+        }
+
+        function resetFilter() {
+            currentFilters = {};
+            document.getElementById('search-status').value = '';
+            document.getElementById('search-city').value = '';
+            document.getElementById('search-commune').value = '';
+            document.getElementById('search-type').value = '';
+            document.getElementById('search-price').value = '';
+            document.getElementById('properties-title').textContent = 'Annonces récentes';
+            displayProperties();
+            document.getElementById('active-filters').style.display = 'none';
+        }
+
+        function resetToHome() {
+            resetFilter();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // Publish modal management
+        function openPublishModal() {
+            if (!isLoggedIn) {
+                showNotification('Veuillez vous connecter pour publier une annonce', 'error');
+                openAuthModal();
+                return;
+            }
+            document.getElementById('publish-modal').classList.add('active');
+        }
+
+        function closePublishModal() {
+            document.getElementById('publish-modal').classList.remove('active');
+            document.getElementById('publish-error').innerHTML = '';
+            document.getElementById('publish-form').reset();
+        }
+
+        function toggleCommuneSelect() {
+            const citySelect = document.getElementById('publish-city');
+            const communeGroup = document.getElementById('commune-select-group');
+            if (citySelect.value === 'Abidjan') {
+                communeGroup.style.display = 'block';
+            } else {
+                communeGroup.style.display = 'none';
+                document.getElementById('publish-commune').value = '';
+            }
+        }
+
+        // Auth modal management
+        function openAuthModal() {
+            document.getElementById('auth-modal').classList.add('active');
+            renderAuthForm();
+        }
+
+        function closeAuthModal() {
+            document.getElementById('auth-modal').classList.remove('active');
+            document.getElementById('auth-error').innerHTML = '';
+        }
+
+        function toggleAuth() {
+            isLoginMode = !isLoginMode;
+            document.getElementById('auth-title').textContent = isLoginMode ? 'Connexion' : 'Inscription';
+            document.getElementById('toggle-text').textContent = isLoginMode ? 'Pas encore de compte ?' : 'Déjà un compte ?';
+            document.getElementById('toggle-btn').textContent = isLoginMode ? "S'inscrire" : 'Se connecter';
+            renderAuthForm();
+            document.getElementById('auth-error').innerHTML = '';
+        }
+
+        function renderAuthForm() {
+            const formContainer = document.getElementById('auth-form');
+            if (isLoginMode) {
+                formContainer.innerHTML = `
+                    <form onsubmit="handleLogin(event)">
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" class="form-input" required placeholder="votre@email.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Mot de passe</label>
+                            <input type="password" class="form-input" required placeholder="Votre mot de passe">
+                        </div>
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">
+                            Se connecter
+                        </button>
+                    </form>
+                `;
+            } else {
+                formContainer.innerHTML = `
+                    <form onsubmit="handleRegister(event)">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Prénom</label>
+                                <input type="text" class="form-input" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Nom</label>
+                                <input type="text" class="form-input" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Email</label>
+                            <input type="email" class="form-input" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Téléphone</label>
+                            <input type="tel" class="form-input" required placeholder="+225 XX XX XX XX XX">
+                        </div>
+                        <div class="form-group">
+                            <label>Ville</label>
+                            <input type="text" class="form-input" required placeholder="Votre ville">
+                        </div>
+                        <div class="form-group">
+                            <label>Mot de passe</label>
+                            <input type="password" class="form-input" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary" style="width: 100%;">
+                            S'inscrire
+                        </button>
+                    </form>
+                `;
+            }
+        }
+
+        function updateNavForLoggedInUser() {
+            const prenom = localStorage.getItem('user_prenom') || 'Mon compte';
+            document.getElementById('nav-links-container').innerHTML = `
+                <a href="#acheter" class="nav-link">Acheter</a>
+                <a href="#louer" class="nav-link">Louer</a>
+                <a href="#villes" class="nav-link">Villes</a>
+                <a href="#communes" class="nav-link">Communes Abidjan</a>
+                <span class="nav-link" style="font-weight: bold; color: #1a73e8;">👤 ${prenom}</span>
+                <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
+                <button class="btn btn-primary" onclick="logout()" style="background: #dc3545;">Déconnexion</button>
+            `;
+        }
+
+        function logout() {
+            localStorage.removeItem('user_id');
+            localStorage.removeItem('user_prenom');
+            localStorage.removeItem('user_nom');
+            isLoggedIn = false;
+            document.getElementById('nav-links-container').innerHTML = `
+                <a href="#acheter" class="nav-link">Acheter</a>
+                <a href="#louer" class="nav-link">Louer</a>
+                <a href="#villes" class="nav-link">Villes</a>
+                <a href="#communes" class="nav-link">Communes Abidjan</a>
+                <button class="btn btn-primary" onclick="openAuthModal()">Connexion</button>
+                <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
+            `;
+            showNotification('Déconnexion réussie', 'success');
+            loadCloudProperties();
+        }
+
+        // Notification system
+        function showNotification(message, type) {
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 1rem 2rem;
+                border-radius: 8px;
+                color: white;
+                font-weight: 500;
+                z-index: 3000;
+                background: ${type === 'success' ? '#28a745' : '#dc3545'};
+            `;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        }
+
+        // Charger les annonces depuis Supabase dès le chargement de la page
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCloudProperties();
+        });
+    </script>
+</body>
+</html>
