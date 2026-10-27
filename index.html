@@ -7,12 +7,12 @@
     <!-- 1. Chargement de la bibliothèque Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
-    const { createClient } = supabase;
+    const createClient = window.supabase?.createClient;
     
     const supabaseUrl = 'https://spbyvkpilrqybbdndwly.supabase.co';
     const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwYnl2a3BpbHJxeWJiZG5kd2x5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzMjM1MDUsImV4cCI6MjEwNzg5OTUwNX0.xrpO5oxFREOY0shzQNArmH7VvOq0o6VuOaDj-j9EIPM'; 
 
-    const _supabase = createClient(supabaseUrl, supabaseKey);
+    const _supabase = createClient ? createClient(supabaseUrl, supabaseKey) : null;
 
     console.log("Supabase est connecté avec succès !");
 
@@ -220,6 +220,7 @@
             displayProperties();
         } catch (error) {
             console.error("Erreur lors du chargement des annonces :", error.message);
+            document.getElementById('properties-container').innerHTML = '<div class="empty-state" role="status"><h3>Les annonces sont momentanément indisponibles.</h3><p>Vérifiez votre connexion ou réessayez dans quelques instants.</p><button class="btn btn-primary" onclick="loadCloudProperties()">Réessayer</button></div>';
         }
     }
 
@@ -863,19 +864,21 @@
             }
         }
     </style>
+    <meta name="description" content="Achetez ou louez votre prochain bien en Côte d’Ivoire. Explorez les annonces immobilières à Abidjan et dans les grandes villes avec SouaCI.">
+    <link rel="stylesheet" href="home.css">
 </head>
 <body>
     <!-- Navigation -->
     <nav class="navbar">
         <a href="#" class="logo" onclick="resetToHome()">Soua<span>CI</span></a>
         <div class="nav-links" id="nav-links-container">
-            <a href="#acheter" class="nav-link">Acheter</a>
-            <a href="#louer" class="nav-link">Louer</a>
+            <a href="#properties-title" class="nav-link" onclick="searchOperation('À vendre')">Acheter</a>
+            <a href="#properties-title" class="nav-link" onclick="searchOperation('À louer')">Louer</a>
             <a href="#villes" class="nav-link">Villes</a>
-            <a href="#communes" class="nav-link">Communes Abidjan</a>
+            <a href="#communes" class="nav-link">Quartiers</a>
             <!-- Bouton Favoris -->
             <button id="btn-favoris" class="btn-favoris" onclick="toggleFavorisView()" style="background: #f3f4f6; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 5px;">
-                ❤️ Mes Favoris (<span id="favoris-count">0</span>)
+                ♡ Favoris (<span id="favoris-count">0</span>)
             </button>
             <button class="btn btn-primary" onclick="openAuthModal()">Connexion</button>
             <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
@@ -885,25 +888,30 @@
     <!-- Hero Section -->
     <section class="hero">
         <div class="container">
-            <h1>Trouvez votre maison idéale en Côte d'Ivoire</h1>
-            <p>Des milliers d'annonces de location et vente dans toutes les communes d'Abidjan</p>
+            <div class="hero-layout"><div class="hero-copy"><span class="eyebrow">L’IMMOBILIER, TOUT SIMPLEMENT.</span>
+            <h1>Une nouvelle adresse.<br>Une <em>nouvelle vie.</em></h1>
+            <p>Acheter, louer, s’installer. Trouvez le lieu qui vous ressemble en Côte d’Ivoire.</p>
+            <a class="hero-link" href="#properties-title">Découvrir les annonces <span aria-hidden="true">↗</span></a>
+            <div class="hero-location"><span class="location-dot"></span> Ici, votre projet prend sa place.</div></div>
+            <figure class="hero-photo"><img src="assets/hero-villa.jpg" alt="Villa contemporaine dans un jardin tropical, illustration immobilière" fetchpriority="high"><figcaption><span>VOTRE PROCHAINE HISTOIRE</span><strong>Commence par un chez-vous.</strong></figcaption></figure></div>
+            <div class="search-heading"><h2>Quel est votre projet ?</h2><span>Votre recherche commence ici</span></div>
             
-            <div class="search-bar">
-                <select class="search-select" id="search-status">
+            <form class="search-bar" onsubmit="event.preventDefault(); performSearch()">
+                <label class="search-field"><span>Je souhaite</span><select class="search-select" id="search-status">
                     <option value="">Type d'opération</option>
                     <option value="À louer">Location</option>
                     <option value="À vendre">Achat</option>
-                </select>
+                </select></label>
                 
-                <select class="search-select" id="search-city">
+                <label class="search-field"><span>Ville</span><select class="search-select" id="search-city">
                     <option value="">Ville</option>
                     <option value="Abidjan">Abidjan</option>
                     <option value="Yamoussoukro">Yamoussoukro</option>
                     <option value="Bouaké">Bouaké</option>
                     <option value="San-Pédro">San-Pédro</option>
-                </select>
+                </select></label>
                 
-                <select class="search-select" id="search-commune">
+                <label class="search-field"><span>Commune</span><select class="search-select" id="search-commune">
                     <option value="">Commune (Abidjan)</option>
                     <option value="Cocody">Cocody</option>
                     <option value="Plateau">Plateau</option>
@@ -918,81 +926,81 @@
                     <option value="Bingerville">Bingerville</option>
                     <option value="Songon">Songon</option>
                     <option value="Anyama">Anyama</option>
-                </select>
+                </select></label>
                 
-                <select class="search-select" id="search-type">
+                <label class="search-field"><span>Type de bien</span><select class="search-select" id="search-type">
                     <option value="">Type de bien</option>
                     <option value="Appartement">Appartement</option>
                     <option value="Villa">Villa</option>
                     <option value="Maison">Maison</option>
                     <option value="Studio">Studio</option>
-                </select>
+                </select></label>
                 
-                <input type="number" class="search-input" id="search-price" placeholder="Budget max (FCFA)" />
+                <label class="search-field"><span>Budget maximum</span><input type="number" min="0" class="search-input" id="search-price" placeholder="Montant en FCFA" /></label>
                 
-                <button class="search-button" onclick="performSearch()">
-                    🔍 Rechercher
+                <button class="search-button" type="submit">
+                    Rechercher <span aria-hidden="true">↗</span>
                 </button>
-            </div>
+            </form>
         </div>
     </section>
 
     <!-- Communes d'Abidjan Section -->
     <section class="container communes-section" id="communes">
-        <h2 class="section-title">Les communes d'Abidjan</h2>
-        <p style="text-align: center; color: #666; margin-bottom: 2rem;">
-            Découvrez les annonces par commune
+        <span class="eyebrow">À CHAQUE QUARTIER, SON ART DE VIVRE</span><h2 class="section-title">Abidjan, à votre rythme.</h2>
+        <p class="section-intro">
+            Un quartier familier ou un nouveau départ ? Explorez les communes qui vous attirent.
         </p>
         
         <div class="communes-grid">
             <div class="commune-card popular" onclick="filterByCommune('Cocody')">
                 <div class="commune-badge">Populaire</div>
-                <h3>🏘️ Cocody</h3>
+                <h3>Cocody</h3>
             </div>
             <div class="commune-card popular" onclick="filterByCommune('Plateau')">
                 <div class="commune-badge">Centre-ville</div>
-                <h3>🏢 Plateau</h3>
+                <h3>Plateau</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Marcory')">
-                <h3>🏠 Marcory</h3>
+                <h3>Marcory</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Treichville')">
-                <h3>🏗️ Treichville</h3>
+                <h3>Treichville</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Koumassi')">
-                <h3>🏡 Koumassi</h3>
+                <h3>Koumassi</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Port-Bouët')">
-                <h3>🏖️ Port-Bouët</h3>
+                <h3>Port-Bouët</h3>
             </div>
             <div class="commune-card popular" onclick="filterByCommune('Yopougon')">
                 <div class="commune-badge">Populaire</div>
-                <h3>🌆 Yopougon</h3>
+                <h3>Yopougon</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Abobo')">
-                <h3>🏙️ Abobo</h3>
+                <h3>Abobo</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Adjamé')">
-                <h3>🕌 Adjamé</h3>
+                <h3>Adjamé</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Attécoubé')">
-                <h3>🌳 Attécoubé</h3>
+                <h3>Attécoubé</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Bingerville')">
                 <h3>🏰 Bingerville</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Songon')">
-                <h3>🌴 Songon</h3>
+                <h3>Songon</h3>
             </div>
             <div class="commune-card" onclick="filterByCommune('Anyama')">
-                <h3>🏗️ Anyama</h3>
+                <h3>Anyama</h3>
             </div>
         </div>
     </section>
 
     <!-- Cities Section -->
     <section class="container" id="villes">
-        <h2 class="section-title">Explorer par ville</h2>
+        <span class="eyebrow">DE NOUVELLES PERSPECTIVES</span><h2 class="section-title">Et si votre avenir était ailleurs ?</h2><p class="section-intro">Explorez l’immobilier dans les grandes villes de Côte d’Ivoire.</p>
         <div class="cities-grid">
             <div class="city-card" onclick="filterByCity('Abidjan')">
                 <div class="city-image abidjan"></div>
@@ -1028,9 +1036,9 @@
 
     <!-- Recent Properties -->
     <section class="container">
-        <h2 class="section-title" id="properties-title">Annonces récentes</h2>
+        <span class="eyebrow">VOTRE RECHERCHE, VOS POSSIBILITÉS</span><h2 class="section-title" id="properties-title">Annonces récentes</h2><p class="section-intro">Découvrez les biens publiés et échangez directement avec les annonceurs.</p>
         <div class="properties-grid" id="properties-container">
-            <!-- Properties will be loaded here -->
+            <div class="empty-state" role="status">Chargement des annonces…</div>
         </div>
     </section>
 
@@ -1038,7 +1046,7 @@
     <section class="container">
         <div class="cta-section">
             <h2>Vous êtes propriétaire ?</h2>
-            <p style="margin-bottom: 2rem;">Publiez votre annonce sur SouaCI et touchez des milliers de personnes</p>
+            <p style="margin-bottom: 2rem;">Donnez de la visibilité à votre bien. Publiez votre annonce et échangez directement avec les personnes intéressées.</p>
             <button class="btn btn-success" style="font-size: 1.2rem; padding: 1rem 2rem;" onclick="openPublishModal()">
                 Publier une annonce gratuitement
             </button>
@@ -1050,12 +1058,12 @@
         <div class="footer-content">
             <div class="footer-section">
                 <h3>SouaCI</h3>
-                <p>La première plateforme immobilière en Côte d'Ivoire. Trouvez la maison de vos rêves dans toutes les communes d'Abidjan.</p>
+                <p>Votre prochain chez-vous commence ici. Achat, location et projets immobiliers en Côte d’Ivoire.</p>
             </div>
             <div class="footer-section">
                 <h3>Contact</h3>
-                <p>📞 +225 0789948925</p>
-                <p>✉️ bonyyanncikkoffi@gmail.com</p>
+                <p><a href="tel:+2250789948925">+225 07 89 94 89 25</a></p>
+                <p><a href="mailto:bonyyanncikkoffi@gmail.com">bonyyanncikkoffi@gmail.com</a></p>
                 <p>📍 Abidjan, Côte d'Ivoire</p>
             </div>
         </div>
@@ -1209,7 +1217,7 @@
                 container.innerHTML = `
                     <div style="grid-column: 1/-1; text-align: center; padding: 3rem;">
                         <h3 style="color: #666; margin-bottom: 1rem;">Aucune annonce trouvée</h3>
-                        <p style="color: #999;">Soyez le premier à publier une annonce sur le Cloud !</p>
+                        <p style="color: #999;">Essayez d’autres critères ou publiez votre premier bien sur SouaCI.</p>
                     </div>
                 `;
                 return;
@@ -1264,7 +1272,7 @@
 
         function formatPrice(price) {
             if (price >= 1000000) {
-                return (price / 1000000).toFixed(0) + 'M FCFA';
+                return Number(price).toLocaleString('fr-FR') + ' FCFA';
             } else if (price >= 1000) {
                 return price.toLocaleString('fr-FR') + ' FCFA';
             }
@@ -1290,6 +1298,11 @@
             document.getElementById('properties-container').scrollIntoView({ behavior: 'smooth' });
         }
 
+        function searchOperation(operation) {
+            document.getElementById('search-status').value = operation;
+            performSearch();
+        }
+
         function performSearch() {
             const statusSelect = document.getElementById('search-status');
             const citySelect = document.getElementById('search-city');
@@ -1298,6 +1311,8 @@
             const priceInput = document.getElementById('search-price');
 
             currentFilters = {};
+            showOnlyFavorites = false;
+            document.getElementById('properties-title').textContent = 'Résultats de votre recherche';
 
             if (statusSelect.value) currentFilters.status = statusSelect.value;
             if (citySelect.value) currentFilters.city = citySelect.value;
@@ -1461,12 +1476,12 @@
         function updateNavForLoggedInUser() {
             const prenom = localStorage.getItem('user_prenom') || 'Mon compte';
             document.getElementById('nav-links-container').innerHTML = `
-                <a href="#acheter" class="nav-link">Acheter</a>
-                <a href="#louer" class="nav-link">Louer</a>
+                <a href="#properties-title" class="nav-link" onclick="searchOperation('À vendre')">Acheter</a>
+                <a href="#properties-title" class="nav-link" onclick="searchOperation('À louer')">Louer</a>
                 <a href="#villes" class="nav-link">Villes</a>
-                <a href="#communes" class="nav-link">Communes Abidjan</a>
+                <a href="#communes" class="nav-link">Quartiers</a>
                 <button id="btn-favoris" class="btn-favoris" onclick="toggleFavorisView()" style="background: #f3f4f6; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 5px;">
-                    ❤️ Mes Favoris (<span id="favoris-count">0</span>)
+                    ♡ Favoris (<span id="favoris-count">0</span>)
                 </button>
                 <span class="nav-link" style="font-weight: bold; color: #1a73e8;">👤 ${prenom}</span>
                 <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
@@ -1481,12 +1496,12 @@
             localStorage.removeItem('user_nom');
             isLoggedIn = false;
             document.getElementById('nav-links-container').innerHTML = `
-                <a href="#acheter" class="nav-link">Acheter</a>
-                <a href="#louer" class="nav-link">Louer</a>
+                <a href="#properties-title" class="nav-link" onclick="searchOperation('À vendre')">Acheter</a>
+                <a href="#properties-title" class="nav-link" onclick="searchOperation('À louer')">Louer</a>
                 <a href="#villes" class="nav-link">Villes</a>
-                <a href="#communes" class="nav-link">Communes Abidjan</a>
+                <a href="#communes" class="nav-link">Quartiers</a>
                 <button id="btn-favoris" class="btn-favoris" onclick="toggleFavorisView()" style="background: #f3f4f6; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 5px;">
-                    ❤️ Mes Favoris (<span id="favoris-count">0</span>)
+                    ♡ Favoris (<span id="favoris-count">0</span>)
                 </button>
                 <button class="btn btn-primary" onclick="openAuthModal()">Connexion</button>
                 <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
@@ -1586,6 +1601,16 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadCloudProperties();
             updateFavorisCount();
+            document.querySelectorAll('.commune-card, .city-card').forEach(card => {
+                card.tabIndex = 0;
+                card.setAttribute('role', 'button');
+                card.addEventListener('keydown', event => {
+                    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); card.click(); }
+                });
+            });
+            document.addEventListener('keydown', event => {
+                if (event.key === 'Escape') { closeAuthModal(); closePublishModal(); }
+            });
         });
     </script>
 </body>
