@@ -1262,6 +1262,7 @@
                         </div>
                         <p style="font-size: 0.9rem; color: #555; margin-bottom: 1rem;">${property.description}</p>
                         
+                        <button type="button" class="visit-button" onclick="openVisitModal(this, ${properties.indexOf(property)})">Réserver une visite</button>
                         ${property.ownerPhone ? `<a href="${whatsappUrl}" target="_blank" style="background: #25D366; color: white; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600; margin-top: 5px;">💬 Contacter sur WhatsApp</a>` : ''}
                         ${isOwner ? `<button style="background: #dc3545; color: white; padding: 0.4rem 0.8rem; border-radius: 15px; font-size: 0.8rem; cursor: pointer; border: none; margin-top: 5px; margin-left: 5px;" onclick="deleteProperty(${property.id})">🗑️ Supprimer</button>` : ''}
                     </div>
@@ -1613,5 +1614,24 @@
             });
         });
     </script>
+    <div class="modal" id="visit-modal" role="dialog" aria-modal="true" aria-labelledby="visit-title" hidden>
+        <div class="modal-content visit-content">
+            <div class="modal-header"><h2 id="visit-title">Réserver une visite</h2><button type="button" class="modal-close" id="visit-close" aria-label="Fermer la réservation">×</button></div>
+            <p id="visit-property" class="visit-summary"></p>
+            <form id="visit-form">
+                <div class="form-group"><label for="visit-name">Votre nom complet</label><input id="visit-name" name="name" autocomplete="name" maxlength="100" required></div>
+                <div class="form-group"><label for="visit-phone">Votre téléphone</label><input id="visit-phone" name="phone" type="tel" autocomplete="tel" placeholder="+225 07 00 00 00 00" maxlength="30" required></div>
+                <div class="form-row">
+                    <div class="form-group"><label for="visit-date">Date souhaitée</label><input id="visit-date" name="date" type="date" required></div>
+                    <div class="form-group"><label for="visit-time">Heure souhaitée (Côte d’Ivoire)</label><input id="visit-time" name="time" type="time" required></div>
+                </div>
+                <div class="form-group"><label for="visit-message">Précisions (facultatif)</label><textarea id="visit-message" name="message" maxlength="1000" rows="3" placeholder="Une question, une disponibilité particulière…"></textarea></div>
+                <p class="visit-note">Votre demande sera préparée dans WhatsApp. Vous devrez l’envoyer vous-même ; la visite sera confirmée par le propriétaire. Sans numéro propriétaire valide, elle sera adressée à l’administrateur au +225 07 89 94 89 25.</p>
+                <p id="visit-error" role="alert"></p>
+                <button type="submit" class="btn btn-success visit-submit">Continuer sur WhatsApp ↗</button>
+            </form>
+        </div>
+    </div>
+    <script src="booking.js"></script>
 </body>
 </html>
