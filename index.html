@@ -6,105 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- 1. Chargement de la bibliothèque Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+    <script src="auth.js"></script>
     <script>
-    const createClient = window.supabase?.createClient;
-    
-    const supabaseUrl = 'https://spbyvkpilrqybbdndwly.supabase.co';
-    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwYnl2a3BpbHJxeWJiZG5kd2x5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzMjM1MDUsImV4cCI6MjEwNzg5OTUwNX0.xrpO5oxFREOY0shzQNArmH7VvOq0o6VuOaDj-j9EIPM'; 
-
-    const _supabase = createClient ? createClient(supabaseUrl, supabaseKey) : null;
-
-    console.log("Supabase est connecté avec succès !");
-
-    // Fonction pour hacher le mot de passe de manière sécurisée
-    async function hashPassword(password) {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(password);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    }
-
-    // 1. Fonction pour l'Inscription d'un utilisateur
-    async function handleRegister(event) {
-        event.preventDefault();
-        const form = event.target;
-        const inputs = form.querySelectorAll('input, select');
-        
-        const prenom = inputs[0].value;
-        const nom = inputs[1].value;
-        const email = inputs[2].value;
-        const telephone = inputs[3].value;
-        const ville = inputs[4].value;
-        const rawPassword = inputs[5].value;
-
-        try {
-            const hashedPassword = await hashPassword(rawPassword);
-
-            const { error } = await _supabase
-                .from('utilisateurs')
-                .insert([{ 
-                    nom, 
-                    prenom, 
-                    email, 
-                    telephone, 
-                    ville, 
-                    mot_de_passe: hashedPassword 
-                }]);
-
-            if (error) throw error;
-
-            showNotification('Inscription réussie ! Vous pouvez vous connecter.', 'success');
-            isLoginMode = true;
-            toggleAuth();
-        } catch (error) {
-            console.error("Erreur d'inscription :", error.message);
-            document.getElementById('auth-error').innerHTML = `<div class="alert alert-error">${error.message}</div>`;
-        }
-    }
-
-    // 2. Fonction pour la Connexion d'un utilisateur
-    async function handleLogin(event) {
-        event.preventDefault();
-        const form = event.target;
-        const email = form.querySelector('input[type="email"]').value;
-        const rawPassword = form.querySelector('input[type="password"]').value;
-
-        try {
-            const hashedPassword = await hashPassword(rawPassword);
-
-            const { data, error } = await _supabase
-                .from('utilisateurs')
-                .select('*')
-                .eq('email', email)
-                .eq('mot_de_passe', hashedPassword)
-                .single();
-
-            if (error || !data) {
-                document.getElementById('auth-error').innerHTML = '<div class="alert alert-error">Email ou mot de passe incorrect.</div>';
-                return;
-            }
-
-            localStorage.setItem('user_id', data.id);
-            localStorage.setItem('user_prenom', data.prenom);
-
-            isLoggedIn = true;
-            closeAuthModal();
-            showNotification(`Connexion réussie ! Bienvenue ${data.prenom}`, 'success');
-            updateNavForLoggedInUser();
-            loadCloudProperties();
-        } catch (error) {
-            console.error("Erreur de connexion :", error.message);
-            document.getElementById('auth-error').innerHTML = `<div class="alert alert-error">Identifiants incorrects.</div>`;
-        }
-    }
-
     // 3. Fonction pour Publier une annonce avec MULTI-PHOTOS sur le Cloud Supabase
     async function publishProperty(event) {
         event.preventDefault();
         
-        const userId = localStorage.getItem('user_id');
-        if (!userId) {
+        const { data: identity, error: identityError } = await _supabase.auth.getUser();
+        const userId = identity?.user?.id;
+        if (identityError || !userId) {
             showNotification('Veuillez vous connecter pour publier une annonce', 'error');
             openAuthModal();
             return;
@@ -139,7 +50,8 @@
             // Boucle d'envoi de toutes les photos sélectionnées vers le Storage
             for (let i = 0; i < imageFiles.length; i++) {
                 const imageFile = imageFiles[i];
-                const fileName = `${Date.now()}_${i}_${imageFile.name}`;
+                const fileName = `${userId}/${crypto.randomUUID()}.${imageFile.type === 'image/png' ? 'png' : 'jpg'}`;
+                if (!['image/jpeg', 'image/png'].includes(imageFile.type) || imageFile.size > 5 * 1024 * 1024) throw new Error('Photos JPG ou PNG uniquement, maximum 5 Mo par photo.');
                 
                 const { error: uploadError } = await _supabase.storage
                     .from('images-annonces')
@@ -159,7 +71,8 @@
                 .from('annonces')
                 .insert([
                     {
-                        user_id: parseInt(userId),
+                        owner_auth_id: userId,
+                        owner_phone: document.getElementById('publish-contact-phone').value.trim(),
                         titre: title,
                         operation: operation,
                         type_bien: type_bien,
@@ -183,7 +96,7 @@
 
         } catch (error) {
             console.error("Erreur lors de la publication :", error.message);
-            document.getElementById('publish-error').innerHTML = `<div class="alert alert-error">Erreur lors de la publication : ${error.message}</div>`;
+            document.getElementById('publish-error').textContent = 'Erreur lors de la publication : ' + error.message;
         }
     }
 
@@ -192,15 +105,16 @@
         try {
             const { data, error } = await _supabase
                 .from('annonces')
-                .select(`*, utilisateurs (telephone, prenom, nom)`)
+                .select('*')
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
 
-            if (data && data.length > 0) {
+            if (data) {
                 properties = data.map(item => ({
                     id: item.id,
                     user_id: item.user_id,
+                    owner_auth_id: item.owner_auth_id,
                     title: item.titre,
                     status: item.operation,
                     type: item.type_bien,
@@ -214,7 +128,7 @@
                     image: item.photo,
                     allPhotos: item.photos_supplementaires ? item.photos_supplementaires.split(',') : [item.photo],
                     description: item.description,
-                    ownerPhone: item.utilisateurs ? item.utilisateurs.telephone : ''
+                    ownerPhone: item.owner_phone || ''
                 }));
             }
             displayProperties();
@@ -1189,6 +1103,7 @@
                     <input type="file" class="form-input" id="publish-image" accept="image/*" multiple required>
                 </div>
 
+                <div class="form-group"><label for="publish-contact-phone">Téléphone de contact public *</label><input id="publish-contact-phone" type="tel" class="form-input" required maxlength="30" placeholder="+225 07 00 00 00 00"><p class="visit-note">Ce numéro sera visible et utilisé pour les contacts et visites de cette annonce.</p></div>
                 <button type="submit" class="btn btn-success" style="width: 100%;">
                     Publier l'annonce sur le Cloud
                 </button>
@@ -1198,7 +1113,7 @@
 
     <script>
         let properties = [];
-        let isLoggedIn = localStorage.getItem('user_id') ? true : false;
+        let isLoggedIn = false;
         let isLoginMode = true;
         let currentFilters = {};
         let showOnlyFavorites = false;
@@ -1208,11 +1123,18 @@
             updateNavForLoggedInUser();
         }
 
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+        function safePhoto(value) {
+            try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href.replace(/'/g, '%27') : ''; } catch { return ''; }
+        }
+
         // Display properties with WhatsApp, Miniatures, Delete and Favorite buttons
         function displayProperties(filteredProperties = null) {
             const container = document.getElementById('properties-container');
             const props = filteredProperties || properties;
-            const currentUserId = localStorage.getItem('user_id');
+            const currentUserId = currentAuthUser?.id;
             
             if (props.length === 0) {
                 container.innerHTML = `
@@ -1225,26 +1147,26 @@
             }
             
             container.innerHTML = props.map(property => {
-                const whatsappUrl = property.ownerPhone ? `https://wa.me/${property.ownerPhone.replace(/\s+/g, '')}?text=Bonjour,%20je%20suis%20intéressé(e)%20par%20votre%20bien:%20${encodeURIComponent(property.title)}` : '#';
-                const isOwner = currentUserId && parseInt(currentUserId) === property.user_id;
+                const whatsappUrl = property.ownerPhone ? `https://wa.me/${String(property.ownerPhone).replace(/[^0-9]/g, '')}?text=Bonjour,%20je%20suis%20intéressé(e)%20par%20votre%20bien:%20${encodeURIComponent(property.title)}` : '#';
+                const isOwner = currentUserId && currentUserId === property.owner_auth_id;
                 const isFavori = checkIfFavori(property.id);
 
                 let thumbnailsHtml = property.allPhotos && property.allPhotos.length > 1 ? `
                     <div style="display: flex; gap: 5px; margin-top: 10px; overflow-x: auto;">
-                        ${property.allPhotos.map((img) => `<img src="${img}" style="width: 45px; height: 45px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid #ddd;" onclick="this.closest('.property-card').querySelector('.property-image').style.backgroundImage='url(${img})'">`).join('')}
+                        ${property.allPhotos.map((img) => `<img src="${escapeHtml(safePhoto(img))}" style="width: 45px; height: 45px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 1px solid #ddd;" onclick="this.closest('.property-card').querySelector('.property-image').style.backgroundImage='url('+this.src+')'">`).join('')}
                     </div>
                 ` : '';
 
                 return `
                 <div class="property-card">
-                    <div class="property-image" style="background-image: url('${property.image}')">
+                    <div class="property-image" style="background-image: url('${escapeHtml(safePhoto(property.image))}')">
                         <!-- Bouton Favori (Cœur) -->
                         <button onclick="toggleFavori(${property.id})" style="position: absolute; top: 1rem; left: 1rem; background: white; border: none; border-radius: 50%; width: 35px; height: 35px; cursor: pointer; font-size: 1.1rem; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 5px rgba(0,0,0,0.2); z-index: 10;">
                             ${isFavori ? '❤️' : '🤍'}
                         </button>
                         
                         <div class="property-badge ${property.status === 'À louer' ? 'rent' : ''}">
-                            ${property.status}
+                            ${escapeHtml(property.status)}
                         </div>
                     </div>
                     <div class="property-content">
@@ -1252,16 +1174,16 @@
                         <div class="property-price" style="margin-top: 10px;">
                             ${formatPrice(property.price)} ${property.status === 'À louer' ? '/ mois' : ''}
                         </div>
-                        <div class="property-title">${property.title}</div><button type="button" class="details-button" onclick="openPropertyDetails(${properties.indexOf(property)}, this)">Voir les détails et les photos ↗</button>
+                        <div class="property-title">${escapeHtml(property.title)}</div><button type="button" class="details-button" onclick="openPropertyDetails(${properties.indexOf(property)}, this)">Voir les détails et les photos ↗</button>
                         <div class="property-location">
-                            📍 ${property.commune ? property.commune + ', ' : ''}${property.city}
+                            📍 ${property.commune ? escapeHtml(property.commune) + ', ' : ''}${escapeHtml(property.city)}
                         </div>
                         <div class="property-features">
-                            <span class="feature-item">📏 ${property.surface} m²</span>
-                            ${property.rooms > 0 ? `<span class="feature-item">🛏️ ${property.rooms} pièces</span>` : ''}
-                            ${property.bathrooms > 0 ? `<span class="feature-item">🚿 ${property.bathrooms} SDB</span>` : ''}
+                            <span class="feature-item">📏 ${escapeHtml(property.surface)} m²</span>
+                            ${property.rooms > 0 ? `<span class="feature-item">🛏️ ${escapeHtml(property.rooms)} pièces</span>` : ''}
+                            ${property.bathrooms > 0 ? `<span class="feature-item">🚿 ${escapeHtml(property.bathrooms)} SDB</span>` : ''}
                         </div>
-                        <p style="font-size: 0.9rem; color: #555; margin-bottom: 1rem;">${property.description}</p>
+                        <p style="font-size: 0.9rem; color: #555; margin-bottom: 1rem;">${escapeHtml(property.description)}</p>
                         
                         <div class="property-actions">
                             <a class="direct-contact" href="${whatsappUrl !== '#' ? whatsappUrl : 'https://wa.me/2250789948925?text=' + encodeURIComponent('Bonjour, je suis intéressé(e) par le bien : ' + property.title + ' (référence ' + property.id + ')')}" target="_blank" rel="noopener noreferrer">Contacter sur WhatsApp</a>
@@ -1451,7 +1373,7 @@
                         </div>
                         <button type="submit" class="btn btn-primary" style="width: 100%;">
                             Se connecter
-                        </button>
+                        </button><button type="button" class="details-button" onclick="requestPasswordReset()">Mot de passe oublié ?</button>
                     </form>
                 `;
             } else {
@@ -1481,7 +1403,7 @@
                         </div>
                         <div class="form-group">
                             <label>Mot de passe</label>
-                            <input type="password" class="form-input" required>
+                            <input type="password" class="form-input" minlength="12" autocomplete="new-password" required>
                         </div>
                         <button type="submit" class="btn btn-primary" style="width: 100%;">
                             S'inscrire
@@ -1492,7 +1414,7 @@
         }
 
         function updateNavForLoggedInUser() {
-            const prenom = localStorage.getItem('user_prenom') || 'Mon compte';
+            const prenom = 'Mon compte';
             document.getElementById('nav-links-container').innerHTML = `
                 <a href="#properties-title" class="nav-link" onclick="searchOperation('À vendre')">Acheter</a>
                 <a href="#properties-title" class="nav-link" onclick="searchOperation('À louer')">Louer</a>
@@ -1508,11 +1430,7 @@
             updateFavorisCount();
         }
 
-        function logout() {
-            localStorage.removeItem('user_id');
-            localStorage.removeItem('user_prenom');
-            localStorage.removeItem('user_nom');
-            isLoggedIn = false;
+        function renderGuestNav() {
             document.getElementById('nav-links-container').innerHTML = `
                 <a href="#properties-title" class="nav-link" onclick="searchOperation('À vendre')">Acheter</a>
                 <a href="#properties-title" class="nav-link" onclick="searchOperation('À louer')">Louer</a>
@@ -1524,8 +1442,6 @@
                 <button class="btn btn-primary" onclick="openAuthModal()">Connexion</button>
                 <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
             `;
-            showNotification('Déconnexion réussie', 'success');
-            loadCloudProperties();
             updateFavorisCount();
         }
 
