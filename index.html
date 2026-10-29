@@ -218,6 +218,7 @@
                 }));
             }
             displayProperties();
+            window.openLinkedProperty?.();
         } catch (error) {
             console.error("Erreur lors du chargement des annonces :", error.message);
             document.getElementById('properties-container').innerHTML = '<div class="empty-state" role="status"><h3>Les annonces sont momentanément indisponibles.</h3><p>Vérifiez votre connexion ou réessayez dans quelques instants.</p><button class="btn btn-primary" onclick="loadCloudProperties()">Réessayer</button></div>';
@@ -929,11 +930,11 @@
                 </select></label>
                 
                 <label class="search-field"><span>Type de bien</span><select class="search-select" id="search-type">
-                    <option value="">Type de bien</option>
+                    <option value="">Type de bien</option><option value="Terrain">Terrain</option><option value="Duplex">Duplex</option>
                     <option value="Appartement">Appartement</option>
                     <option value="Villa">Villa</option>
                     <option value="Maison">Maison</option>
-                    <option value="Studio">Studio</option>
+                    <option value="Studio">Studio</option><option value="Bureau">Bureau</option><option value="Local commercial">Local commercial</option>
                 </select></label>
                 
                 <label class="search-field"><span>Budget maximum</span><input type="number" min="0" class="search-input" id="search-price" placeholder="Montant en FCFA" /></label>
@@ -1117,7 +1118,7 @@
                             <option value="Appartement">Appartement</option>
                             <option value="Villa">Villa</option>
                             <option value="Maison">Maison</option>
-                            <option value="Studio">Studio</option>
+                            <option value="Studio">Studio</option><option value="Bureau">Bureau</option><option value="Local commercial">Local commercial</option>
                             <option value="Duplex">Duplex</option>
                             <option value="Terrain">Terrain</option>
                         </select>
@@ -1251,7 +1252,7 @@
                         <div class="property-price" style="margin-top: 10px;">
                             ${formatPrice(property.price)} ${property.status === 'À louer' ? '/ mois' : ''}
                         </div>
-                        <div class="property-title">${property.title}</div>
+                        <div class="property-title">${property.title}</div><button type="button" class="details-button" onclick="openPropertyDetails(${properties.indexOf(property)}, this)">Voir les détails et les photos ↗</button>
                         <div class="property-location">
                             📍 ${property.commune ? property.commune + ', ' : ''}${property.city}
                         </div>
@@ -1331,6 +1332,15 @@
             if (currentFilters.type) filtered = filtered.filter(p => p.type === currentFilters.type);
             if (currentFilters.maxPrice) filtered = filtered.filter(p => p.price <= currentFilters.maxPrice);
 
+            const rooms = Number(document.getElementById('filter-rooms')?.value || 0);
+            const surface = Number(document.getElementById('filter-surface')?.value || 0);
+            if (rooms) currentFilters.minRooms = rooms;
+            if (surface) currentFilters.minSurface = surface;
+            filtered = filtered.filter(p => Number(p.rooms || 0) >= rooms && Number(p.surface || 0) >= surface);
+            const sort = document.getElementById('filter-sort')?.value;
+            if (sort === 'price-asc') filtered.sort((a,b) => a.price - b.price);
+            if (sort === 'price-desc') filtered.sort((a,b) => b.price - a.price);
+            if (sort === 'surface') filtered.sort((a,b) => b.surface - a.surface);
             displayProperties(filtered);
             updateFilterTags();
             document.getElementById('properties-container').scrollIntoView({ behavior: 'smooth' });
@@ -1348,6 +1358,9 @@
             section.style.display = 'block';
             let tagsHTML = '';
             
+            if (currentFilters.minRooms) tagsHTML += `<span class="filter-tag active">${currentFilters.minRooms} pièces minimum</span>`;
+            if (currentFilters.minSurface) tagsHTML += `<span class="filter-tag active">${currentFilters.minSurface} m² minimum</span>`;
+            if (currentFilters.maxPrice) tagsHTML += `<span class="filter-tag active">Budget : ${formatPrice(currentFilters.maxPrice)}</span>`;
             if (currentFilters.city) tagsHTML += `<span class="filter-tag active">🏙️ ${currentFilters.city}</span>`;
             if (currentFilters.commune) tagsHTML += `<span class="filter-tag active">📍 ${currentFilters.commune}</span>`;
             if (currentFilters.status) tagsHTML += `<span class="filter-tag active">${currentFilters.status}</span>`;
@@ -1359,6 +1372,8 @@
 
         function resetFilter() {
             currentFilters = {};
+            ['filter-rooms','filter-surface'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+            const sorting = document.getElementById('filter-sort'); if(sorting) sorting.value = 'recent';
             document.getElementById('search-status').value = '';
             document.getElementById('search-city').value = '';
             document.getElementById('search-commune').value = '';
@@ -1635,5 +1650,7 @@
         </div>
     </div>
     <script src="booking.js"></script>
+<dialog id="property-dialog" aria-label="Détails du bien"><button type="button" id="property-close" class="details-button">Fermer ×</button><div id="property-details"></div></dialog>
+    <script src="property-tools.js"></script>
 </body>
 </html>
