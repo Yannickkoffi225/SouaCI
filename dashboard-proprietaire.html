@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SouaCI - Tableau de bord Propriétaire</title>
+    <link rel="stylesheet" href="home.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+    <script src="auth.js"></script>
+    <script src="dashboard.js"></script>
+    <style>
+        /* Styles spécifiques au tableau de bord */
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        .dashboard-section {
+            background: white;
+            border-radius: 15px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .dashboard-title {
+            font-size: 1.8rem;
+            color: #1a73e8;
+            margin-bottom: 1rem;
+        }
+        .annonces-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+        .annonce-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 1.5rem;
+            border: 1px solid #e0e0e0;
+        }
+        .annonce-card h3 {
+            margin-bottom: 0.5rem;
+            color: #333;
+        }
+        .annonce-card p {
+            color: #666;
+            margin-bottom: 1rem;
+        }
+        .btn-dashboard {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+        .btn-edit { background: #ff6b00; color: white; }
+        .btn-delete { background: #dc3545; color: white; }
+        .btn-visites { background: #1a73e8; color: white; }
+        .btn-signalements { background: #6c757d; color: white; }
+        
+        .visites-list, .signalements-list {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #f0f0f0;
+            border-radius: 8px;
+        }
+        .visite-item, .signalement-item {
+            padding: 1rem;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .statut-badge {
+            padding: 0.2rem 0.5rem;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            color: white;
+        }
+        .statut-demandé { background: #ffc107; color: #000; }
+        .statut-confirmé { background: #28a745; }
+        .statut-refusé { background: #dc3545; }
+        .statut-proposition { background: #17a2b8; }
+        
+        .alert-success { background: #d4edda; color: #155724; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+        .alert-error { background: #f8d7da; color: #721c24; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <!-- Navigation (similaire à index.html mais avec liens dashboard) -->
+    <nav class="navbar" style="background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <a href="index.html" class="logo" style="font-size: 1.5rem; color: #1a73e8; text-decoration: none;">Soua<span>CI</span></a>
+        <div class="nav-links" id="nav-links-container">
+            <a href="index.html" class="nav-link">Accueil</a>
+            <a href="dashboard-proprietaire.html" class="nav-link" id="link-dashboard-prop" style="display: none;">Mon Tableau de bord</a>
+            <a href="dashboard-admin.html" class="nav-link" id="link-dashboard-admin" style="display: none; color: #dc3545; font-weight: bold;">Panel Admin</a>
+            <button class="btn btn-primary" id="btn-logout" onclick="logout()" style="display: none;">Déconnexion</button>
+        </div>
+    </nav>
+
+    <div class="dashboard-container">
+        <div id="auth-alert" class="alert-error" style="display: none;">Veuillez vous connecter pour accéder à votre tableau de bord.</div>
+        
+        <div id="dashboard-content" style="display: none;">
+            <div class="dashboard-header">
+                <h1 class="dashboard-title">Tableau de bord Propriétaire</h1>
+                <span id="user-info" style="font-weight: 500; color: #555;"></span>
+            </div>
+
+            <!-- Section Profil -->
+            <div class="dashboard-section">
+                <h2>Mon Profil</h2>
+                <div id="profile-form">
+                    <div class="form-group">
+                        <label>Prénom</label>
+                        <input type="text" id="profile-prenom" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Nom</label>
+                        <input type="text" id="profile-nom" class="form-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Téléphone</label>
+                        <input type="tel" id="profile-telephone" class="form-input" required placeholder="+225 07 00 00 00 00">
+                    </div>
+                    <div class="form-group">
+                        <label>Ville</label>
+                        <input type="text" id="profile-ville" class="form-input" required>
+                    </div>
+                    <button class="btn btn-success" onclick="updateProfile()" style="width: 100%;">Enregistrer les modifications</button>
+                </div>
+            </div>
+
+            <!-- Section Annonces -->
+            <div class="dashboard-section">
+                <h2>Mes Annonces</h2>
+                <div id="annonces-container" class="annonces-grid">
+                    <div style="grid-column: 1/-1; text-align: center; padding: 2rem;">Chargement de vos annonces…</div>
+                </div>
+                <button class="btn btn-primary" onclick="window.location.href='index.html#publish-modal'" style="margin-top: 1rem;">Publier une nouvelle annonce</button>
+            </div>
+
+            <!-- Section Visites -->
+            <div class="dashboard-section">
+                <h2>Mes Visites Réservées</h2>
+                <div id="visites-container" class="visites-list">
+                    <div style="text-align: center; padding: 1rem;">Chargement des visites…</div>
+                </div>
+            </div>
+
+            <!-- Section Signalements (si admin, mais on peut le laisser pour info) -->
+            <div class="dashboard-section" id="section-signalements" style="display: none;">
+                <h2>Signalements sur mes annonces</h2>
+                <div id="signalements-container" class="signalements-list">
+                    <div style="text-align: center; padding: 1rem;">Chargement des signalements…</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading-state" style="text-align: center; padding: 3rem; font-size: 1.2rem; color: #666;">
+            Chargement du tableau de bord…
+        </div>
+    </div>
+
+    <script>
+        // Logique commune de dashboard.js sera chargée ici
+        document.addEventListener('DOMContentLoaded', async () => {
+            const { data: user, error } = await _supabase.auth.getUser();
+            if (error || !user) {
+                document.getElementById('loading-state').style.display = 'none';
+                document.getElementById('auth-alert').style.display = 'block';
+                setTimeout(() => window.location.href = 'index.html', 3000);
+                return;
+            }
+
+            const currentUserId = user.user.id;
+            document.getElementById('loading-state').style.display = 'none';
+            document.getElementById('dashboard-content').style.display = 'block';
+            document.getElementById('user-info').textContent = `Bienvenue, ${user.user.user_metadata.full_name || 'Propriétaire'} (${user.user.email})`;
+            
+            // Afficher le lien admin si nécessaire (simulé par email ou rôle)
+            // Pour l'instant, on affiche le lien admin si l'email est celui de l'admin (à configurer)
+            const adminEmails = ['bonyyanncikkoffi@gmail.com']; // Exemple
+            if (adminEmails.includes(user.user.email)) {
+                document.getElementById('link-dashboard-admin').style.display = 'inline-block';
+            }
+
+            // Charger les données du propriétaire
+            loadProprietaireData(currentUserId);
+        });
+    </script>
+</body>
+</html>

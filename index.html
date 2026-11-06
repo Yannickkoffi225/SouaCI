@@ -791,12 +791,15 @@
             <a href="#properties-title" class="nav-link" onclick="searchOperation('À louer')">Louer</a>
             <a href="#villes" class="nav-link">Villes</a>
             <a href="#communes" class="nav-link">Quartiers</a>
-            <!-- Bouton Favoris -->
             <button id="btn-favoris" class="btn-favoris" onclick="toggleFavorisView()" style="background: #f3f4f6; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 5px;">
                 ♡ Favoris (<span id="favoris-count">0</span>)
             </button>
-            <button class="btn btn-primary" onclick="openAuthModal()">Connexion</button>
-            <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
+            <!-- Liens Tableaux de bord (cachés par défaut) -->
+            <a href="dashboard-proprietaire.html" class="nav-link" id="link-dashboard-prop" style="display: none;">Mon Tableau de bord</a>
+            <a href="dashboard-admin.html" class="nav-link" id="link-dashboard-admin" style="display: none; color: #dc3545; font-weight: bold;">Panel Admin</a>
+            <button class="btn btn-primary" id="btn-logout" onclick="logout()" style="display: none;">Déconnexion</button>
+            <button class="btn btn-primary" onclick="openAuthModal()" id="btn-login">Connexion</button>
+            <button class="btn btn-success" onclick="openPublishModal()" id="btn-publish" style="display: none;">Publier une annonce</button>
         </div>
     </nav>
 
@@ -1414,8 +1417,12 @@
         }
 
         function updateNavForLoggedInUser() {
-            const prenom = 'Mon compte';
-            document.getElementById('nav-links-container').innerHTML = `
+            const { data: user } = await _supabase.auth.getUser();
+            const prenom = user.user.user_metadata.full_name || 'Mon compte';
+            const adminEmails = ['bonyyanncikkoffi@gmail.com'];
+            const isAdmin = adminEmails.includes(user.user.email);
+
+            let navHtml = `
                 <a href="#properties-title" class="nav-link" onclick="searchOperation('À vendre')">Acheter</a>
                 <a href="#properties-title" class="nav-link" onclick="searchOperation('À louer')">Louer</a>
                 <a href="#villes" class="nav-link">Villes</a>
@@ -1423,10 +1430,18 @@
                 <button id="btn-favoris" class="btn-favoris" onclick="toggleFavorisView()" style="background: #f3f4f6; border: none; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 5px;">
                     ♡ Favoris (<span id="favoris-count">0</span>)
                 </button>
-                <span class="nav-link" style="font-weight: bold; color: #1a73e8;">👤 ${prenom}</span>
-                <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
-                <button class="btn btn-primary" onclick="logout()" style="background: #dc3545;">Déconnexion</button>
+                <a href="dashboard-proprietaire.html" class="nav-link" style="font-weight: bold; color: #1a73e8;">Mon Tableau de bord</a>`;
+            
+            if (isAdmin) {
+                navHtml += `<a href="dashboard-admin.html" class="nav-link" style="font-weight: bold; color: #dc3545;">Panel Admin</a>`;
+            }
+
+            navHtml += `
+                <button class="btn btn-success" onclick="openPublishModal()" style="margin-left: 0.5rem;">Publier une annonce</button>
+                <button class="btn btn-primary" onclick="logout()" style="background: #dc3545; margin-left: 0.5rem;">Déconnexion</button>
             `;
+            
+            document.getElementById('nav-links-container').innerHTML = navHtml;
             updateFavorisCount();
         }
 
@@ -1440,12 +1455,10 @@
                     ♡ Favoris (<span id="favoris-count">0</span>)
                 </button>
                 <button class="btn btn-primary" onclick="openAuthModal()">Connexion</button>
-                <button class="btn btn-success" onclick="openPublishModal()">Publier une annonce</button>
+                <button class="btn btn-success" onclick="openPublishModal()" style="display: none;">Publier une annonce</button>
             `;
             updateFavorisCount();
         }
-
-        // Notification system
         function showNotification(message, type) {
             const notification = document.createElement('div');
             notification.style.cssText = `
